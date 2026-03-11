@@ -12,7 +12,7 @@ export async function getIssueDescription(issueId: string): Promise<string> {
   return issue?.description ?? "";
 }
 
-async function moveIssueToStatus(issueIdentifier: string, statusName: string): Promise<void> {
+export async function moveIssueToStatus(issueIdentifier: string, statusName: string): Promise<void> {
   const issues = await linear.issueSearch({ query: issueIdentifier });
   const issue = issues.nodes.find((i) => i.identifier === issueIdentifier);
   if (!issue) {
