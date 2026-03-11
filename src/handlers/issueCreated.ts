@@ -1,5 +1,5 @@
 import { LinearIssueData } from "../types/linear";
-import { getProjectRepoName, getIssueDescription } from "../services/linear";
+import { getProjectRepoName, getIssueDescription, moveIssueToReview } from "../services/linear";
 import { branchExists, createBranch, createEmptyCommit, createPR } from "../services/github";
 import { aiFixIssue } from "../services/ai";
 import { generateBranchName } from "../utils/branchName";
@@ -68,4 +68,7 @@ export async function handleAI(data: LinearIssueData): Promise<void> {
   const prBody = `## ${data.identifier}: ${data.title}\n\n${description || "Geen beschrijving."}`;
   const prUrl = await createPR(repoName, branchName, `${data.identifier}: ${data.title}`, prBody);
   console.log(`PR created: ${prUrl}`);
+
+  await moveIssueToReview(data.identifier);
+  console.log(`Issue ${data.identifier} moved to Review`);
 }

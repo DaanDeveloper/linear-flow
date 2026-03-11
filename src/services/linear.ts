@@ -43,3 +43,8 @@ export async function moveIssueToTodo(issueIdentifier: string): Promise<void> {
   const statusName = process.env.LINEAR_STATUS_TODO || "Todo";
   await moveIssueToStatus(issueIdentifier, statusName);
 }
+
+export async function moveIssueToReview(issueIdentifier: string): Promise<void> {
+  const statusName = process.env.LINEAR_STATUS_REVIEW || "Review";
+  await moveIssueToStatus(issueIdentifier, statusName);
+}
