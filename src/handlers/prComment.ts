@@ -55,6 +55,19 @@ export async function handlePRComment(payload: PRCommentPayload): Promise<void> 
   try {
     await aiHandlePRComment(repo, branchName, comment, prTitle);
   } catch (error) {
-    console.error(`AI failed handling PR comment on #${prNumber}:`, error);
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error(`AI failed handling PR comment on #${prNumber}: ${errorMsg}`);
+
+    // Reply on PR with error message
+    try {
+      await octokit.rest.issues.createComment({
+        owner,
+        repo,
+        issue_number: prNumber,
+        body: `🤖 AI kon de feedback niet verwerken:\n\n\`${errorMsg}\`\n\nProbeer het opnieuw of pas de code handmatig aan.`,
+      });
+    } catch (commentErr) {
+      console.error(`Failed to post error comment on PR #${prNumber}:`, commentErr);
+    }
   }
 }

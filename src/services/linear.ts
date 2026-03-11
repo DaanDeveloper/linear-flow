@@ -48,3 +48,19 @@ export async function moveIssueToReview(issueIdentifier: string): Promise<void> 
   const statusName = process.env.LINEAR_STATUS_REVIEW || "Review";
   await moveIssueToStatus(issueIdentifier, statusName);
 }
+
+export async function moveIssueToAIFailed(issueIdentifier: string): Promise<void> {
+  const statusName = process.env.LINEAR_STATUS_AI_FAILED || "Todo";
+  await moveIssueToStatus(issueIdentifier, statusName);
+}
+
+export async function addCommentToIssue(issueIdentifier: string, body: string): Promise<void> {
+  const issues = await linear.issueSearch({ query: issueIdentifier });
+  const issue = issues.nodes.find((i) => i.identifier === issueIdentifier);
+  if (!issue) {
+    console.log(`Issue ${issueIdentifier} not found, cannot add comment`);
+    return;
+  }
+  await linear.createComment({ issueId: issue.id, body });
+  console.log(`Comment added to ${issueIdentifier}`);
+}

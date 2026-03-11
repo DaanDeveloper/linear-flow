@@ -6,6 +6,7 @@ import { handleInProgress, handleAI } from "./handlers/issueCreated";
 import { handleIssueBackToTodo } from "./handlers/issueBackToTodo";
 import { handlePRMerged, handlePRClosed } from "./handlers/prMerged";
 import { handlePRComment } from "./handlers/prComment";
+import { enqueue, isProcessing, registerHandler, startWorker, getQueueStats } from "./queue";
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -13,6 +14,17 @@ const port = process.env.PORT || 3000;
 const statusInProgress = () => process.env.LINEAR_STATUS_IN_PROGRESS || "In Progress";
 const statusAI = () => process.env.LINEAR_STATUS_AI || "AI";
 const statusTodo = () => process.env.LINEAR_STATUS_TODO || "Todo";
+
+// Register queue handlers
+registerHandler("ai-fix", async (payload) => {
+  const { handleAI: aiHandler } = await import("./handlers/issueCreated");
+  await aiHandler(payload.issueData as any);
+});
+
+registerHandler("pr-comment", async (payload) => {
+  const { handlePRComment: prHandler } = await import("./handlers/prComment");
+  await prHandler(payload.commentPayload as any);
+});
 
 app.use(express.json());
 
@@ -67,15 +79,13 @@ app.post("/", async (req, res) => {
       return;
     }
 
-    // PR comment
+    // PR comment → enqueue
     if (githubEvent === "issue_comment" && payload.action === "created") {
       console.log(`GitHub: comment on #${payload.issue?.number} by ${payload.comment?.user?.login}`);
       res.status(200).json({ success: true });
-      try {
-        await handlePRComment(payload);
-      } catch (error) {
-        console.error("Error handling PR comment:", error);
-      }
+
+      const dedupeKey = `pr-comment-${payload.repository?.name}-${payload.issue?.number}-${payload.comment?.id}`;
+      enqueue("pr-comment", { commentPayload: payload }, dedupeKey);
       return;
     }
 
@@ -112,14 +122,20 @@ app.post("/", async (req, res) => {
       return;
     }
 
-    // AI → branch + Claude fixt + PR
+    // AI → enqueue (branch + Claude fixt + PR)
     if (stateName === statusAI() && (payload.action === "create" || payload.action === "update")) {
       res.status(200).json({ success: true });
-      try {
-        await handleAI(payload.data);
-      } catch (error) {
-        console.error("Error handling AI:", error);
+
+      const issueIdentifier = payload.data.identifier;
+
+      // Loop prevention: skip if already processing
+      if (isProcessing(issueIdentifier)) {
+        console.log(`Issue ${issueIdentifier} is already being processed, skipping`);
+        return;
       }
+
+      const dedupeKey = `ai-fix-${issueIdentifier}`;
+      enqueue("ai-fix", { issueData: payload.data, issueIdentifier }, dedupeKey);
       return;
     }
 
@@ -139,8 +155,11 @@ app.post("/", async (req, res) => {
 });
 
 app.get("/health", (_req, res) => {
-  res.json({ status: "ok" });
+  res.json({ status: "ok", queue: getQueueStats() });
 });
+
+// Start queue worker
+startWorker();
 
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);

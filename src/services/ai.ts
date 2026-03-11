@@ -71,7 +71,7 @@ export async function aiFixIssue(
     if (pushed) {
       console.log(`AI changes pushed for ${issueIdentifier}`);
     } else {
-      console.log(`No changes made by AI for ${issueIdentifier}`);
+      throw new Error(`AI made no changes for ${issueIdentifier}`);
     }
   } finally {
     if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -105,7 +105,7 @@ export async function aiHandlePRComment(
     if (pushed) {
       console.log(`AI changes pushed for PR comment`);
     } else {
-      console.log(`No changes made by AI for PR comment`);
+      throw new Error("AI made no changes for PR comment feedback");
     }
   } finally {
     if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true });

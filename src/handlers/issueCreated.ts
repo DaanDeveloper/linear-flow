@@ -1,6 +1,6 @@
 import { LinearIssueData } from "../types/linear";
-import { getProjectRepoName, getIssueDescription, moveIssueToReview } from "../services/linear";
-import { branchExists, createBranch, createEmptyCommit, createPR } from "../services/github";
+import { getProjectRepoName, getIssueDescription, moveIssueToReview, addCommentToIssue, moveIssueToAIFailed } from "../services/linear";
+import { branchExists, createBranch, createEmptyCommit, createPR, deleteBranch } from "../services/github";
 import { aiFixIssue } from "../services/ai";
 import { generateBranchName } from "../utils/branchName";
 
@@ -62,7 +62,24 @@ export async function handleAI(data: LinearIssueData): Promise<void> {
   try {
     await aiFixIssue(repoName, branchName, data.identifier, data.title, description);
   } catch (error) {
-    console.error(`AI fix failed for ${data.identifier}:`, error);
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error(`AI fix failed for ${data.identifier}: ${errorMsg}`);
+
+    // Cleanup: delete branch, move issue to failed state, add comment
+    try {
+      await deleteBranch(repoName, branchName);
+      console.log(`Branch "${branchName}" deleted after AI failure`);
+    } catch (delErr) {
+      console.error(`Failed to delete branch "${branchName}":`, delErr);
+    }
+
+    await addCommentToIssue(
+      data.identifier,
+      `🤖 AI kon dit issue niet automatisch oplossen:\n\n\`${errorMsg}\`\n\nHet issue is teruggezet. Probeer het opnieuw of los het handmatig op.`
+    );
+    await moveIssueToAIFailed(data.identifier);
+    console.log(`Issue ${data.identifier} moved to AI failed state`);
+    return;
   }
 
   const prBody = `## ${data.identifier}: ${data.title}\n\n${description || "Geen beschrijving."}`;
