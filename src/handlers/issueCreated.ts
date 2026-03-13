@@ -88,4 +88,14 @@ export async function handleAI(data: LinearIssueData): Promise<void> {
 
   await moveIssueToReview(data.identifier);
   console.log(`Issue ${data.identifier} moved to Review`);
+
+  // Linear auto-sets "In Progress" when PR is attached — override after a delay
+  setTimeout(async () => {
+    try {
+      await moveIssueToReview(data.identifier);
+      console.log(`Issue ${data.identifier} re-confirmed In Review`);
+    } catch (e) {
+      console.error(`Failed to re-confirm In Review for ${data.identifier}:`, e);
+    }
+  }, 5000);
 }

@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import { debug } from "./utils/debug";
 
 export interface Job {
   id: string;
@@ -62,7 +63,7 @@ export function enqueue(type: string, payload: Record<string, unknown>, dedupeKe
       (j) => j.payload._dedupeKey === dedupeKey && (j.status === "pending" || j.status === "running")
     );
     if (existing) {
-      console.log(`Queue: skipping duplicate job (dedupeKey=${dedupeKey})`);
+      debug(`Queue: skipping duplicate job (dedupeKey=${dedupeKey})`);
       return null;
     }
   }
@@ -79,7 +80,7 @@ export function enqueue(type: string, payload: Record<string, unknown>, dedupeKe
 
   data.jobs.push(job);
   writeQueue(data);
-  console.log(`Queue: enqueued job ${job.id} (type=${type})`);
+  debug(`Queue: enqueued job ${job.id} (type=${type})`);
   return job;
 }
 
@@ -89,6 +90,13 @@ export function isProcessing(issueIdentifier: string): boolean {
     (j) =>
       j.payload.issueIdentifier === issueIdentifier &&
       (j.status === "pending" || j.status === "running")
+  );
+}
+
+export function isJobActive(type: string): boolean {
+  const data = readQueue();
+  return data.jobs.some(
+    (j) => j.type === type && (j.status === "pending" || j.status === "running")
   );
 }
 
@@ -105,12 +113,12 @@ async function processNextJob(): Promise<void> {
           job.status = "pending";
           job.retries++;
           job.updatedAt = new Date().toISOString();
-          console.log(`Queue: recovered crashed job ${job.id}, retry ${job.retries}`);
+          debug(`Queue: recovered crashed job ${job.id}, retry ${job.retries}`);
         } else {
           job.status = "failed";
           job.error = "Job timed out after max retries";
           job.updatedAt = new Date().toISOString();
-          console.log(`Queue: job ${job.id} failed after timeout`);
+          debug(`Queue: job ${job.id} failed after timeout`);
         }
       }
     }
@@ -147,7 +155,7 @@ async function processNextJob(): Promise<void> {
   nextJob.updatedAt = new Date().toISOString();
   writeQueue(data);
 
-  console.log(`Queue: processing job ${nextJob.id} (type=${nextJob.type})`);
+  debug(`Queue: processing job ${nextJob.id} (type=${nextJob.type})`);
 
   try {
     await handler(nextJob.payload);
@@ -159,7 +167,7 @@ async function processNextJob(): Promise<void> {
       freshJob.updatedAt = new Date().toISOString();
       writeQueue(freshData);
     }
-    console.log(`Queue: job ${nextJob.id} completed`);
+    debug(`Queue: job ${nextJob.id} completed`);
   } catch (error) {
     const freshData = readQueue();
     const freshJob = freshData.jobs.find((j) => j.id === nextJob.id);
@@ -184,7 +192,7 @@ async function processNextJob(): Promise<void> {
 
 export function startWorker(): void {
   if (workerTimer) return;
-  console.log("Queue: worker started");
+  debug("Queue: worker started");
   workerTimer = setInterval(async () => {
     try {
       await processNextJob();
