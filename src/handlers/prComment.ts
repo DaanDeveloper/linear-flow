@@ -4,6 +4,7 @@ import { moveIssueToReview, moveIssueToAIFailed, addCommentToIssue } from "../se
 interface PRCommentPayload {
   action: string;
   comment: {
+    id: number;
     body: string;
     user: {
       login: string;
@@ -73,7 +74,20 @@ export async function handlePRComment(payload: PRCommentPayload): Promise<void> 
 
   const issueIdentifier = extractIssueIdentifier(branchName);
 
+  const commentId = payload.comment.id;
   console.log(`PR #${prNumber} @ai on branch "${branchName}": "${aiPrompt.substring(0, 100)}..."`);
+
+  // React with thumbs up to acknowledge
+  try {
+    await octokit.rest.reactions.createForIssueComment({
+      owner,
+      repo,
+      comment_id: commentId,
+      content: "+1",
+    });
+  } catch (e) {
+    console.error("Failed to add thumbs up reaction:", e);
+  }
 
   // Move Linear issue to AI status while processing
   if (issueIdentifier) {

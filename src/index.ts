@@ -7,6 +7,7 @@ import { handleIssueBackToTodo } from "./handlers/issueBackToTodo";
 import { handlePRMerged, handlePRClosed } from "./handlers/prMerged";
 import { handlePRComment } from "./handlers/prComment";
 import { enqueue, isProcessing, registerHandler, startWorker, getQueueStats } from "./queue";
+import { debug } from "./utils/debug";
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -26,7 +27,25 @@ registerHandler("pr-comment", async (payload) => {
   await prHandler(payload.commentPayload as any);
 });
 
-app.use(express.json());
+app.use((req: any, _res, next) => {
+  let data = Buffer.alloc(0);
+  req.on("data", (chunk: Buffer) => { data = Buffer.concat([data, chunk]); });
+  req.on("end", () => {
+    req.rawBody = data.toString("utf-8");
+    try {
+      // GitHub may send as form-encoded: payload={json}
+      if (req.rawBody.startsWith("payload=")) {
+        const decoded = decodeURIComponent(req.rawBody.slice("payload=".length).replace(/\+/g, " "));
+        req.body = JSON.parse(decoded);
+      } else {
+        req.body = JSON.parse(req.rawBody);
+      }
+    } catch {
+      req.body = {};
+    }
+    next();
+  });
+});
 
 function verifyLinearSignature(body: string, signature: string): boolean {
   const hmac = crypto.createHmac("sha256", process.env.LINEAR_WEBHOOK_SECRET!);
@@ -41,17 +60,23 @@ function verifyGitHubSignature(body: string, signature: string): boolean {
 }
 
 app.post("/", async (req, res) => {
-  const rawBody = typeof req.body === "string" ? req.body : JSON.stringify(req.body);
+  const rawBody: string = (req as any).rawBody || JSON.stringify(req.body);
   const linearSignature = req.headers["linear-signature"] as string;
   const githubSignature = req.headers["x-hub-signature-256"] as string;
   const githubEvent = req.headers["x-github-event"] as string;
 
   // --- GitHub webhook ---
   if (githubSignature && githubEvent) {
+    debug(`GitHub webhook: event=${githubEvent} action=${req.body?.action} bodyType=${typeof req.body} bodyKeys=${Object.keys(req.body || {}).slice(0, 5)} hasRawBody=${!!(req as any).rawBody} rawBodyLen=${rawBody?.length}`);
+
     if (!verifyGitHubSignature(rawBody, githubSignature)) {
+      const hmac = crypto.createHmac("sha256", process.env.GITHUB_WEBHOOK_SECRET!);
+      const expected = "sha256=" + hmac.update(rawBody).digest("hex");
+      debug(`GitHub signature MISMATCH: received=${githubSignature} expected=${expected}`);
       res.status(401).json({ error: "Invalid GitHub signature" });
       return;
     }
+    debug(`GitHub signature OK`);
 
     const payload = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
 
@@ -81,11 +106,15 @@ app.post("/", async (req, res) => {
 
     // PR comment → enqueue
     if (githubEvent === "issue_comment" && payload.action === "created") {
-      console.log(`GitHub: comment on #${payload.issue?.number} by ${payload.comment?.user?.login}`);
+      debug(`GitHub: comment on #${payload.issue?.number} by ${payload.comment?.user?.login}`);
       res.status(200).json({ success: true });
 
+      const prTitle = payload.issue?.title || "";
+      const idMatch = prTitle.match(/^([A-Z]+-\d+)/);
+      const issueIdentifier = idMatch ? idMatch[1] : undefined;
+
       const dedupeKey = `pr-comment-${payload.repository?.name}-${payload.issue?.number}-${payload.comment?.id}`;
-      enqueue("pr-comment", { commentPayload: payload }, dedupeKey);
+      enqueue("pr-comment", { commentPayload: payload, issueIdentifier }, dedupeKey);
       return;
     }
 
@@ -106,7 +135,7 @@ app.post("/", async (req, res) => {
 
   const payload: LinearWebhookPayload = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
 
-  console.log(`Linear: action=${payload.action} type=${payload.type} state=${payload.data?.state?.name}`);
+  debug(`Linear: action=${payload.action} type=${payload.type} state=${payload.data?.state?.name}`);
 
   if (payload.type === "Issue") {
     const stateName = payload.data.state?.name;
@@ -128,9 +157,9 @@ app.post("/", async (req, res) => {
 
       const issueIdentifier = payload.data.identifier;
 
-      // Loop prevention: skip if already processing
+      // Loop prevention: skip if already processing (ai-fix or pr-comment)
       if (isProcessing(issueIdentifier)) {
-        console.log(`Issue ${issueIdentifier} is already being processed, skipping`);
+        debug(`Issue ${issueIdentifier} is already being processed, skipping`);
         return;
       }
 
