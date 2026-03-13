@@ -9,9 +9,9 @@ Bidirectionele sync tussen Linear en GitHub. Automatisch branches, PRs en AI cod
 | Actie | Resultaat |
 |---|---|
 | Linear issue → **In Progress** | Branch + PR aanmaken (handmatig werken) |
-| Linear issue → **AI** | Branch aanmaken → Claude AI fixt het issue → PR aanmaken |
+| Linear issue → **AI** | Branch aanmaken → AI fixt het issue → PR aanmaken → In Review |
 | Linear issue → **Todo** (terug) | PR sluiten + branch verwijderen |
-| GitHub PR **comment** | Claude AI pikt feedback op en pushed wijzigingen |
+| GitHub PR **`@ai` comment** | AI verwerkt feedback → pushed wijzigingen → thumbs-up reactie |
 | GitHub PR **merged** | Linear issue → Done |
 | GitHub PR **closed** (niet merged) | Linear issue → Todo |
 
@@ -35,7 +35,12 @@ TARGET_BRANCH=main
 LINEAR_STATUS_TODO=Todo
 LINEAR_STATUS_IN_PROGRESS=In Progress
 LINEAR_STATUS_AI=AI
+LINEAR_STATUS_REVIEW=In Review
 LINEAR_STATUS_DONE=Done
+LINEAR_STATUS_AI_FAILED=Todo
+AI_PROVIDER=claude
+AI_MODEL=
+DEBUG=false
 ```
 
 ### 2. Linear API Key
@@ -72,7 +77,7 @@ Zet bij `GITHUB_OWNER` de GitHub organisatie of gebruikersnaam.
 
 1. Ga naar je repository → **Settings → Webhooks → Add webhook**
 2. **Payload URL**: zelfde URL als Linear webhook
-3. **Content type**: `application/json`
+3. **Content type**: `application/x-www-form-urlencoded` of `application/json` (beide worden ondersteund)
 4. **Secret**: kies een secret en zet in `.env` bij `GITHUB_WEBHOOK_SECRET`
 5. **Events**: selecteer **Pull requests** en **Issue comments**
 
@@ -88,16 +93,32 @@ Maak in je Linear team workflow de volgende statussen aan (of pas de namen aan i
 
 - **Todo** — standaard status
 - **In Progress** — handmatig werken (branch + PR)
-- **AI** — Claude AI fixt het issue automatisch
+- **AI** — AI fixt het issue automatisch
+- **In Review** — wordt gezet na succesvolle AI fix + PR
 - **Done** — wordt automatisch gezet bij PR merge
 
-### 8. Claude CLI (voor AI modus)
+### 8. AI Provider
 
-De AI modus vereist dat [Claude Code](https://claude.ai/code) geïnstalleerd is op de server:
+De AI modus ondersteunt **Claude** en **Codex**. Configureer via `.env`:
 
+| Instelling | Opties | Voorbeeld |
+|---|---|---|
+| `AI_PROVIDER` | `claude` of `codex` | `AI_PROVIDER=codex` |
+| `AI_MODEL` | Leeg = default van de provider | `AI_MODEL=o4-mini` |
+
+**Claude** — vereist [Claude Code](https://claude.ai/code):
 ```bash
-claude --version  # moet beschikbaar zijn
+claude --version
 ```
+
+**Codex** — vereist [Codex CLI](https://github.com/openai/codex):
+```bash
+codex --version
+```
+
+### 9. Debug modus
+
+Zet `DEBUG=true` in `.env` voor uitgebreide logging (webhook details, queue processing, signatures).
 
 ## Draaien
 
@@ -120,11 +141,21 @@ curl http://localhost:3000/health
 # → {"status":"ok"}
 ```
 
+## @ai PR Comments
+
+Plaats een comment op een PR die begint met `@ai` gevolgd door instructies:
+
+```
+@ai Fix de styling van de header component
+```
+
+De AI verwerkt de feedback, pushed wijzigingen naar de branch, en reageert met een thumbs-up.
+
 ## Testen
 
 1. Maak een issue aan in Linear (in een project dat matcht met een GitHub repo)
 2. Verplaats naar **In Progress** → check of branch + PR verschijnt in GitHub
-3. Verplaats naar **AI** → check of Claude wijzigingen maakt en een PR opent
-4. Plaats een comment op de PR → check of Claude de feedback verwerkt
+3. Verplaats naar **AI** → check of AI wijzigingen maakt en een PR opent
+4. Plaats een `@ai` comment op de PR → check of AI de feedback verwerkt
 5. Merge de PR → check of het Linear issue naar Done gaat
 6. Sluit de PR (zonder merge) → check of het Linear issue terug naar Todo gaat
